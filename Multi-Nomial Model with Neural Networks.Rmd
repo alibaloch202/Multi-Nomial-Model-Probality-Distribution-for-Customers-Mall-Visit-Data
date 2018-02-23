@@ -1,0 +1,224 @@
+---
+title: "Machine Learning Challenge"
+author: "Ali Baloch"
+date: "October 24, 2017"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+  html_notebook:
+    df_print: paged
+    highlight: tango
+    theme: readable
+    toc: yes
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+  pdf_document:
+    toc: yes
+---
+# Case Study & Model Selection
+
+As we have 143 weeks data of customers visits in mall, and after informal analysis of given data-set specially "visits" column in train_set.csv file, it is clear that data is of discrete type and after transformation of data, it is stated that data has a variable "visits" which can take any value between 0 to 7 (weekdays), so we have to use any of the following discrete probability distributin method to get next possible visit of any particular customer i.e.<br>
+  1. Bionomial probability distribution<br>
+  2. Hypergeomatric probability distribution<br>
+  3. Multinomial probabilty distribution<br>
+  4. Negative Bionomial distribution<br>
+
+ <b>1. Binomial probability distribution:</b>
+It's experiments can consits of any repeated trials but works for a case in which any two possible outcomes of it's trails are possible, so by any chance it can't be used in our case as we have 0 to 1 possible outcomes.
+
+ <b>2. Hypergeomatry Probabilty distribution:</b>
+It focus on selecting random sized values from a dataset/sample without their replacement in dataset population and tend to classify these selected values as success or failure, which is probabily not suitable for our case, as it needs a lot of complex operation on our dataset transformation with unclear and unoptimized outcomes.
+
+ <b>3. Negative Probability distribution:</b>
+ It only focus on each trail/variable who must have two outcomes, success or failure but trails are independent, and it is good for disccrete classification with only two possible outcomes.
+
+ <b>4. Multinomial probability Distribution:</b>
+ An extended form of Binomial probabilty distribution, it's popular due to it's commonly known example of dice rolling, it is good for dataset who has multiple finite known possible outcomes and also its trails are independent and it is very effective for multi-lable data and its classification.<br>
+ <b><em>So it's been decided that Multinomial Probability distribution Method is best fit for our dataset</em></b>
+
+
+
+
+
+
+
+#Environment Setup
+``````{r libs, warning=FALSE}
+library(dplyr)
+library(nnet)
+library(reshape2)
+library(ggplot2)
+
+
+```
+
+
+#Data Files Reading
+```{r importingdata, echo=TRUE, warning=FALSE}
+train_data_set= read.table(file="train_set.csv", header = TRUE, sep=",")
+head(train_data_set,10)
+test_data_set = read.table(file="test_set.csv", header=TRUE, sep=",")
+head(test_data_set,10)
+```
+
+#Data Tranformation
+```{r datatransformation, echo=TRUE, warning=FALSE}
+train_data_set$visits <- as.character(train_data_set$visits)
+
+   #vectorizatin of visits column
+Sunday = vector(mode="numeric", length=nrow(test_data_set))
+Monday = vector(mode="numeric", length=nrow(test_data_set))
+Tuesday = vector(mode="numeric", length=nrow(test_data_set))
+Wednesday = vector(mode="numeric", length=nrow(test_data_set))
+Thursday = vector(mode="numeric", length=nrow(test_data_set))
+Friday = vector(mode="numeric", length=nrow(test_data_set))
+Saturday = vector(mode="numeric", length=nrow(test_data_set))
+
+avg_visit_day_gap = vector(mode="numeric", length=nrow(test_data_set))
+visits_total = vector(mode="numeric", length=nrow(test_data_set))
+days_since_last_visit = vector(mode="numeric", length=nrow(test_data_set))
+
+# mapping visits column data into weekdays
+for (i in 1:nrow(train_data_set)) {
+  visits = unlist(strsplit(train_data_set[i,2]," "))
+  visits_gaps = 0
+  visits_total[i] = length(visits)-1
+  size_of_visits = length(visits)
+  for(j in 2:size_of_visits){
+  current_visit_day = as.numeric(visits[j])  
+    if(current_visit_day%%7 == 0){
+      Sunday[i] = Sunday[i]+1
+    } else if (current_visit_day%%7 == 1){
+      Monday[i] = Monday[i]+1
+    } else if (current_visit_day%%7 == 2){
+      Tuesday[i] = Tuesday[i]+1
+    } else if (current_visit_day%%7 == 3){
+      Wednesday[i] = Wednesday[i]+1
+    } else if (current_visit_day%%7 == 4){
+      Thursday[i] = Thursday[i]+1
+    } else if (current_visit_day%%7 == 5){
+      Friday[i] = Friday[i]+1
+    } else if (current_visit_day%%7 == 6){
+      Saturday[i] = Saturday[i]+1
+    } 
+    
+    #calculating average gap between visits
+    if(j!=2){
+      last_visit_day = as.numeric(visits[j-1])
+      visits_gaps = visits_gaps + ( current_visit_day - last_visit_day)
+      avg_visit_day_gap[i] = visits_gaps/(size_of_visits-2)
+    }
+
+  }
+  #claculating 
+  days_since_last_visit[i] = 1001-as.numeric(visits[size_of_visits])
+}
+
+transf_df <- data.frame(visitor_id = train_data_set$visitor_id, Sunday, Monday, 
+                  Tuesday, Wednesday, Thursday, Friday, Saturday,
+                    avg_visit_day_gap, visits_total, days_since_last_visit,
+                      next_visit_day = test_data_set$next_visit_day
+                  )
+head(transf_df, 10)
+```
+#Data Normalization
+```{r normalize, warning=FALSE}
+transf_df$Sunday = transf_df$Sunday / transf_df$visits_total
+transf_df$Monday = transf_df$Monday / transf_df$visits_total
+transf_df$Tuesday = transf_df$Tuesday / transf_df$visits_total
+transf_df$Wednesday = transf_df$Wednesday / transf_df$visits_total
+transf_df$Thursday = transf_df$Thursday / transf_df$visits_total
+transf_df$Friday = transf_df$Friday / transf_df$visits_total
+transf_df$Saturday = transf_df$Saturday / transf_df$visits_total
+
+transf_df$next_visit_day = factor(transf_df$next_visit_day)
+
+transf_df$next_visit_day  = relevel(transf_df$next_visit_day, ref="0")
+
+```
+
+
+#Visualization of Customers Visit(Histograms)
+```{r plots, echo=TRUE, warning=FALSE}
+plot_hitograms = function(data){
+  d <- melt(data)
+  ggplot(d,aes(x = value)) + 
+    facet_wrap(~variable,scales = "free") + 
+    geom_histogram()
+}
+plot_hitograms(select(transf_df, 2:11))
+```
+
+#Train/Test Data Spliting
+```{r sampling, warning=FALSE}
+#70/30 training and testing random split
+train<-sample_frac(transf_df, 0.7)
+sid<-as.numeric(rownames(train))
+test<-transf_df[-sid,]
+```
+
+# Data Modeling
+```{r modeling, echo=TRUE, warning=FALSE}
+
+model_weekdays = multinom(next_visit_day ~ avg_visit_day_gap + visits_total 
+                         + days_since_last_visit + Sunday + Monday + Tuesday 
+                         + Wednesday + Thursday + Friday + Saturday, 
+                        data = train)
+```
+
+
+```{r}
+summary(model_weekdays)
+```
+
+
+```{r}
+
+predictions_prob = predict(model_weekdays, test, type="prob")
+predictions_class = predict(model_weekdays, test, type="class")
+
+head(predictions_prob)
+head(predictions_class)
+
+```
+
+#Confusion/Evaluation Matrix
+```{r eval, warning=FALSE}
+predictions = predict(model_weekdays, test)
+
+(confusion_matrix = table(predictions,test$next_visit_day))
+```
+
+```{r}
+(Misclassification = 1-sum(diag(confusion_matrix))/sum(confusion_matrix))
+```
+
+
+#Significance Test
+```{r signi, warning=FALSE}
+
+significance= summary(model_weekdays)$coefficients/summary(model_weekdays)$standard.errors
+p = (1 -pnorm(abs(significance),0,1)) * 2
+p
+
+```
+
+# Model Evaluation:
+ <p> Model used in this case is a Multinomial model with the power of neural network in logistic regression, we say it a regression with one layer neural network.<br>
+  As logistic regression can be generalize to 'k' number of classes(more than two) with the help of multinomial logistic regression, as we have more than two classes i.e. total 8 classes (7 weekdays visits, and 1 no visit at all).
+     So multinomial logistic model via neural network (vectorize inputs) been used to fit the dataset, as it allows to predict a factor of multiple level in one shot.<br>
+	    Our data is neural in neural in nature so let neural network to overcome the data comparison and concatenation of probability. "multinorm" function will do the all and allow us to observe the probability  of each subset to interpret our data.<br>
+		Before feeding our data to multinorm function the data have been transformed into 7 weekdays and their standard derived attributes, which after have been splits into 70/30 ratio as a train test split, so that data can be tested on real training data, not a self assumed testing data, due to this best possible generalization level can be attain and can avoid over-fitting and under-fitting of model in an optimized way. </p>
+		
+
+#Result Evaluation:
+<p> <b> At Data Modelling </b> phase , 'maxiter' variable is set to its default iteration value i.e. 100, and at 100th iteration it gives a final value- a global minima which is 392231.566 with the neural network nodes weight of 96  solution with lowest possible error and gives the "Converged" signal, which shows that model went as far as it could, In last three iteration, the outcome value's first 4 decimal number before point "3922#.####" show the progress of our model numerical computation towards global minima. We have two prediction outcome forms "class" and "prob".<br> in <b>class</b> outcome is 0 to 7 levels of classes, which means we have 8 level predictions which cover all weekdays and no visit at all attrribute.<br>
+From <b> Prob </b> outcomes we can observe and analyse the predictions for each class associated to it.<br>
+From <b> summary(model_weekdays)</b> method a judgements can be made form the standard error of error of each visitor_id against each week-day visit probability and its derived attributes. as next_visit_day is dependent variable and all weekdays and their derived attributes is independent variable, so the comparsion of odds between independent vvaribales against dependent and continous varibale.<br>
+<b>Coefficient</b> size of each independent variable in our dataset determines the expected increase or decrease of our dependent variable, as our coefficients outcomes are balance with both negative and positive values which show the coefficients do not have the straightforward interpretation which needs to discussed and analyse in a more advance way. 
+In <b>standard Errors</b> in which estimated values in the regression line are being compared to the actual values and the difference between them show our model optimization level by using standard erorr formula on each prediction, if standard value is accurate 0.000 it means our model is overfit and if it is some higher value closer to 1, it shows the under fitting of our model, and it can seen that standard error is closer to zero in our case which show the  accuracy of the model.<br> 
+From <b> Confusion Matrix</b> each number of prediction(successful and unsuccessful) agaisnt its relative class (0 to 7) can be analyzed and observed, e.g. for "1" class/level we can see that our model predict 1 zero times when it should predict 0, and predict 1 5296 times when it should predict 1, predict 1, 3476 times when it should have to predict 2, and so on for others.
+From <b>Significance</b>  it can be observed that the p-value is been tested from the confidence level 95 % and values against the intercepts coefficient divided by its standard error  of each independent variable in a row which has p value outcome that is very low and less than .00 which shows the higher significance confidence level. as it can be observed that the lowest p-values can be found on sunday, Tuesdays, and Friday, which show these independent varibales have high effect strong association  on our depend variable next_day_visit probability. </p>
+		
